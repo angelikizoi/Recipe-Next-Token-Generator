@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Personal files & folders
+play.ipynb
+play.py
+future_steps.txt
+mlartifacts/
+mlruns/
+
+# Big Files
+dataset/dataset.zip
+dataset/full_dataset.csv
+dataset/recipe.txt
+

@@ -1,0 +1,113 @@
+from config.data_config import DataConfig
+from typing import Dict, List
+from collections import defaultdict
+import tiktoken
+import numpy as np
+import regex as re
+import json
+import os
+
+
+class Tokenizer:
+    def __init__(self, tokenizer_type='custom', config=None):
+        """
+        tokenizer_type: one of {"custom", "hug", "tiktoken"}
+        """
+        self.config = config or DataConfig()
+        if tokenizer_type == 'tiktoken':
+            base_enc = tiktoken.get_encoding("cl100k_base")
+            self.tokenizer = tiktoken.Encoding(
+                name="custom_tiktoken",
+                pat_str=base_enc._pat_str,
+                mergeable_ranks=base_enc._mergeable_ranks,
+                special_tokens=self.config.special_tokens_tiktoken
+            )
+        elif tokenizer_type == 'hug':
+            from tokenizers import Tokenizer
+            self.tokenizer = Tokenizer.from_file(self.config.hug_tokenizer)
+
+        elif tokenizer_type == 'custom':
+            self.compiled_pattern = re.compile(self.config.regex_pattern)
+            self.special_tokens = self.config.special_tokens
+            self.vocab = self._load_vocab(self.config.custom_tokenizer_dir)
+            self.merges = self._load_merges(self.config.custom_tokenizer_dir)
+
+        else:
+            raise ValueError(
+                f"Unknown tokenizer_type '{tokenizer_type}'. Must be one of ['custom', 'hug', 'tiktoken']."
+            )
+        self.tokenizer_type = tokenizer_type
+
+
+    def encode(self, text: str) -> List[int]:
+        if self.tokenizer_type == 'custom':
+            text_list = re.findall(self.compiled_pattern, text)
+            raw_text_ids = [list(word.encode("utf-8")) if word not in self.special_tokens else [self.special_tokens[word]] for word in text_list]
+            text_ids = [token for word_ids in raw_text_ids for token in self._compress_word(word_ids)]
+            return text_ids
+        elif self.tokenizer_type == 'hug':
+            return self.tokenizer.encode(text).ids
+        else:
+            return self.tokenizer.encode(text, allowed_special='all')
+    
+
+    def decode(self, text_ids: List[int])-> str:
+        if self.tokenizer_type == 'custom':
+            for pair, value in self.merges.items():
+                pair = eval(pair)
+                self.vocab[value] = self.vocab[pair[0]] + self.vocab[pair[1]]
+            word_b_str = b"".join([self.vocab.get(id, b"") for id in text_ids])
+            return word_b_str.decode(errors='replace')
+        elif self.tokenizer_type == 'hug':
+            return "".join([self.tokenizer.decode([id]) for id in text_ids])
+        else:
+            filtered = [id for id in text_ids if id not in self.tokenizer._special_tokens.values()]
+            return self.tokenizer.decode(filtered)
+    
+    def _compress_word(self, word: List[int]) -> List[int]:
+        while len(word) > 1:
+            pairs_dict = defaultdict(list)
+            for i, pair in enumerate(zip(word[:-1], word[1:])):
+                pairs_dict[pair].append(i)
+            replacement_pair = min(pairs_dict, key=lambda p: self.merges.get(str(p), float("inf")))
+            if str(replacement_pair) not in self.merges:
+                break
+            replacement_idx = self.merges[str(replacement_pair)]
+            for i, idx in enumerate(pairs_dict[replacement_pair]):
+                idx_replace = idx - i
+                word[idx_replace: idx_replace+2] = [replacement_idx]
+        return word
+
+
+    def _load_vocab(self, dir: str) -> Dict[int, bytes]:
+        with open(os.path.join(dir, 'vocabulary.bpe'), 'r') as f:
+            vocab_data = f.read()
+        vocab = [tuple(merge_str.split('\t')) for merge_str in vocab_data.split('\n')[:-1]]
+        vocab = {int(tuple_element[0]): eval(tuple_element[1]) for tuple_element in vocab}
+        return vocab
+    
+    def _load_merges(self, dir: str) -> Dict[tuple, int]:
+        with open(os.path.join(dir, 'merges.json'), 'r') as f:
+            merges = json.load(f)
+
+        return merges
+
+
+def find_max_seq_length(tokenizer: Tokenizer, config: DataConfig) -> int:
+    line_offsets = np.load(config.offsets_filepath)
+    with open(config.txt_filepath, "r", encoding="utf-8") as f:
+        max_length = 0
+        for i in range(len(line_offsets)):
+            f.seek(int(line_offsets[i]))
+            text = f.readline().rstrip()
+            text_ids = tokenizer.encode(text)
+            max_length = max(max_length, len(text_ids))
+    return max_length
+
+
+
+if __name__ == "__main__":
+    tokenizer = Tokenizer(tokenizer_type='custom')
+    config = DataConfig()
+    max_seq_length = find_max_seq_length(tokenizer, config)
+    print(max_seq_length)
