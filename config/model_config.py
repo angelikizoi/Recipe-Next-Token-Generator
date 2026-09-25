@@ -9,8 +9,11 @@ class ModelConfig:
     d_model: int = 256
     n_heads: int = 8
     n_epochs: int = 10
+    dropout: float = 0.1
     clip_grad_norm: float = 1.0
     learning_rate: float = 1e-4
+    warmup_iters: int = 1000
+    min_lr_ratio: float = 0.1
     train_test_split: float = 0.9
 
     
