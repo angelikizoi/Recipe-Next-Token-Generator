@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
 .venv
@@ -16,8 +17,8 @@ future_steps.txt
 mlartifacts/
 mlruns/
 
-# Big Files
-dataset/dataset.zip
-dataset/full_dataset.csv
-dataset/recipe.txt
+# Data Files
+data/dataset.zip
+data/full_dataset.csv
+data/recipe.txt
 
