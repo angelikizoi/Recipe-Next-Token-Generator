@@ -18,7 +18,7 @@ def loss_plot(history):
     plt.close(fig)
     return fig
 
-def plp_plot(history):
+def ppl_plot(history):
     epochs = np.arange(len(history['train_ppl']))
     with plt.style.context(style='seaborn-v0_8-pastel'):
         fig, ax = plt.subplots(figsize=(10,8))

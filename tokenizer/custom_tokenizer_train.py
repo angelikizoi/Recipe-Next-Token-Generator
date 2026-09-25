@@ -10,6 +10,7 @@ import pickle
 import tempfile
 import json
 import time
+import ast
 import cmsketch
 import gc
 
@@ -119,7 +120,7 @@ if __name__ == '__main__':
                 total_counter.update(top_freq_pair_dict)
                 temp_files.append(temp_path)
             temp_files.sort()
-            most_frequent_pair = eval(total_counter.most_common(1)[0][0])
+            most_frequent_pair = ast.literal_eval(total_counter.most_common(1)[0][0])
             merges.update({most_frequent_pair: current_idx})
             del total_counter, results
             gc.collect()

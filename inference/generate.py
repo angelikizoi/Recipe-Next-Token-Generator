@@ -1,53 +1,89 @@
+import argparse
+import json
+import os
+
 import mlflow
 import torch
 import torch.nn.functional as F
 
-from dataloader.tokenizer import Tokenizer
+from tokenizer.tokenizer import Tokenizer, get_pad_idx
 from config.data_config import DataConfig
 
-pad_idx = DataConfig().special_tokens["<|PAD|>"]
+RESULTS_ROOT = "results"
 
-mlflow.set_tracking_uri('http://localhost:5000')
-run_id = "afbfd4c68e5d4fcd8fd37e4e0da672f7"
-logged_model_path = f"runs:/{run_id}/model8"
-loaded_model = mlflow.pytorch.load_model(logged_model_path)
 
-tokenizer = Tokenizer(tokenizer_type='hug')
+@torch.no_grad()
+def generate(model, tokenizer, pad_idx, device, prompt, num_return_sequences=4, max_length=124, top_k=50, seed=1337):
+    """Top-k sampling from `model`, starting from `prompt`. Returns a list of decoded strings."""
+    model.eval()
+    torch.manual_seed(seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed(seed)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokens = torch.tensor(tokenizer.encode(prompt), dtype=torch.long)
+    xgen = tokens.unsqueeze(0).repeat(num_return_sequences, 1).to(device)
 
-torch.manual_seed(1337)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(1337)
-
-num_return_sequences = 4
-max_length = 124
-tokens = tokenizer.encode("chicken, rice, curry")
-tokens = torch.tensor(tokens, dtype=torch.long)
-tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
-xgen = tokens.to(device)
-loaded_model.eval()
-while xgen.size(1) < max_length:
-    # forward the model to get the logits
-    with torch.no_grad():
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            logits, loss = loaded_model(pad_idx, xgen) # (B, T, vocab_size)
-        # take the logits at the last position
-        logits = logits[:, -1, :] # (B, vocab_size)
-        # get the probabilities
+    autocast_dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    while xgen.size(1) < max_length:
+        with torch.amp.autocast(device_type=device.type, dtype=autocast_dtype):
+            logits, _ = model(pad_idx, xgen)  # (B, T, vocab_size)
+        logits = logits[:, -1, :]  # (B, vocab_size)
         probs = F.softmax(logits, dim=-1)
-        # do top-k sampling of 50 (huggingface pipeline default)
-        # topk_probs here becomes (5, 50), topk_indices is (5, 50)
-        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-        # select a token from the top-k probabilities
-        # note: multinomial does not demand the input to sum to 1
-        ix = torch.multinomial(topk_probs, 1) # (B, 1)
-        # gather the corresponding indices
-        xcol = torch.gather(topk_indices, -1, ix) # (B, 1)
-        # append to the sequence
+        topk_probs, topk_indices = torch.topk(probs, top_k, dim=-1)
+        ix = torch.multinomial(topk_probs, 1)  # (B, 1)
+        xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
         xgen = torch.cat((xgen, xcol), dim=1)
-# print the generated text
-for i in range(num_return_sequences):
-    tokens = xgen[i, :max_length].tolist()
-    decoded = tokenizer.decode(tokens)
-    print(f"sample {i}: {decoded}")
+
+    return [tokenizer.decode(xgen[i, :max_length].tolist()) for i in range(num_return_sequences)]
+
+
+def load_model_from_mlflow(run_id, model_name, tracking_uri):
+    mlflow.set_tracking_uri(tracking_uri)
+    return mlflow.pytorch.load_model(f"runs:/{run_id}/{model_name}")
+
+
+def _resolve_run(args):
+    """Fall back to results/<tokenizer>/latest_run.json (written by training/train.py) when --run-id is omitted."""
+    if args.run_id:
+        return args.run_id, args.model_name
+    latest_run_path = os.path.join(RESULTS_ROOT, args.tokenizer, "latest_run.json")
+    if not os.path.exists(latest_run_path):
+        raise SystemExit(
+            f"No --run-id given and {latest_run_path} not found. "
+            "Run training/train.py first, or pass --run-id / --model-name explicitly."
+        )
+    with open(latest_run_path) as f:
+        latest = json.load(f)
+    return latest["run_id"], args.model_name or latest["model_name"]
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate recipe text from a trained checkpoint.")
+    parser.add_argument("--prompt", default="chicken, rice, curry", help="Prompt to condition generation on.")
+    parser.add_argument("--tokenizer", choices=["custom", "hug", "tiktoken"], default="hug",
+                         help="Tokenizer the target checkpoint was trained with.")
+    parser.add_argument("--run-id", default=None, help="MLflow run id. Defaults to results/<tokenizer>/latest_run.json.")
+    parser.add_argument("--model-name", default=None, help="MLflow logged-model name, e.g. 'model9'.")
+    parser.add_argument("--tracking-uri", default="http://localhost:5000")
+    parser.add_argument("--num-samples", type=int, default=4)
+    parser.add_argument("--max-length", type=int, default=124)
+    args = parser.parse_args()
+
+    run_id, model_name = _resolve_run(args)
+    pad_idx = get_pad_idx(args.tokenizer, DataConfig())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print(f"Loading model from run {run_id}/{model_name} ({args.tracking_uri})...")
+    model = load_model_from_mlflow(run_id, model_name, args.tracking_uri).to(device)
+    tokenizer = Tokenizer(tokenizer_type=args.tokenizer)
+
+    samples = generate(
+        model, tokenizer, pad_idx, device, args.prompt,
+        num_return_sequences=args.num_samples, max_length=args.max_length,
+    )
+    for i, sample in enumerate(samples):
+        print(f"sample {i}: {sample}")
+
+
+if __name__ == "__main__":
+    main()

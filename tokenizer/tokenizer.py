@@ -1,11 +1,17 @@
+import os
+# Must be set before the `tokenizers` Rust extension spins up its internal thread
+# pool; otherwise DataLoader worker processes forked afterwards (num_workers>0)
+# deadlock on first use, since the pool doesn't survive fork.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from config.data_config import DataConfig
 from typing import Dict, List
 from collections import defaultdict
+import ast
 import tiktoken
 import numpy as np
 import regex as re
 import json
-import os
 
 
 class Tokenizer:
@@ -31,6 +37,9 @@ class Tokenizer:
             self.special_tokens = self.config.special_tokens
             self.vocab = self._load_vocab(self.config.custom_tokenizer_dir)
             self.merges = self._load_merges(self.config.custom_tokenizer_dir)
+            for pair, value in self.merges.items():
+                pair = ast.literal_eval(pair)
+                self.vocab[value] = self.vocab[pair[0]] + self.vocab[pair[1]]
 
         else:
             raise ValueError(
@@ -53,15 +62,12 @@ class Tokenizer:
 
     def decode(self, text_ids: List[int])-> str:
         if self.tokenizer_type == 'custom':
-            for pair, value in self.merges.items():
-                pair = eval(pair)
-                self.vocab[value] = self.vocab[pair[0]] + self.vocab[pair[1]]
-            word_b_str = b"".join([self.vocab.get(id, b"") for id in text_ids])
+            word_b_str = b"".join([self.vocab.get(token_id, b"") for token_id in text_ids])
             return word_b_str.decode(errors='replace')
         elif self.tokenizer_type == 'hug':
-            return "".join([self.tokenizer.decode([id]) for id in text_ids])
+            return "".join([self.tokenizer.decode([token_id]) for token_id in text_ids])
         else:
-            filtered = [id for id in text_ids if id not in self.tokenizer._special_tokens.values()]
+            filtered = [token_id for token_id in text_ids if token_id not in self.tokenizer._special_tokens.values()]
             return self.tokenizer.decode(filtered)
     
     def _compress_word(self, word: List[int]) -> List[int]:
@@ -79,18 +85,33 @@ class Tokenizer:
         return word
 
 
-    def _load_vocab(self, dir: str) -> Dict[int, bytes]:
-        with open(os.path.join(dir, 'vocabulary.bpe'), 'r') as f:
+    def _load_vocab(self, directory: str) -> Dict[int, bytes]:
+        with open(os.path.join(directory, 'vocabulary.bpe'), 'r') as f:
             vocab_data = f.read()
         vocab = [tuple(merge_str.split('\t')) for merge_str in vocab_data.split('\n')[:-1]]
-        vocab = {int(tuple_element[0]): eval(tuple_element[1]) for tuple_element in vocab}
+        vocab = {int(tuple_element[0]): ast.literal_eval(tuple_element[1]) for tuple_element in vocab}
         return vocab
-    
-    def _load_merges(self, dir: str) -> Dict[tuple, int]:
-        with open(os.path.join(dir, 'merges.json'), 'r') as f:
+
+    def _load_merges(self, directory: str) -> Dict[tuple, int]:
+        with open(os.path.join(directory, 'merges.json'), 'r') as f:
             merges = json.load(f)
 
         return merges
+
+
+def get_vocab_size(tokenizer_type: str, config: DataConfig = None) -> int:
+    """Vocab size needed by the model embedding/output layers for a given tokenizer."""
+    config = config or DataConfig()
+    if tokenizer_type == "tiktoken":
+        return max(config.special_tokens_tiktoken.values()) + 1
+    return config.total_vocab_size
+
+
+def get_pad_idx(tokenizer_type: str, config: DataConfig = None) -> int:
+    config = config or DataConfig()
+    if tokenizer_type == "tiktoken":
+        return config.special_tokens_tiktoken["<|PAD|>"]
+    return config.special_tokens["<|PAD|>"]
 
 
 def find_max_seq_length(tokenizer: Tokenizer, config: DataConfig) -> int:

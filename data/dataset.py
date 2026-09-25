@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
 
 from config.data_config import DataConfig
-from dataloader.tokenizer import Tokenizer
+from tokenizer.tokenizer import Tokenizer
 
 
 

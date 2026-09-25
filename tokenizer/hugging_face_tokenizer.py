@@ -17,12 +17,9 @@ tokenizer.pre_tokenizer = Split(Regex(TIKTOKEN_PATTERN), 'isolated')
 
 tokenizer.train([config.txt_filepath], trainer=trainer)
 
-try:
-    os.mkdir(config.hug_tokenizer_dir)
-except FileExistsError:
-    pass
+os.makedirs(os.path.dirname(config.hug_tokenizer), exist_ok=True)
 
-tokenizer.save(os.path.join(config.hug_tokenizer_dir, "tokenizer.json"))
+tokenizer.save(config.hug_tokenizer)
 
 
             
