@@ -34,7 +34,6 @@ class Tokenizer:
 
         elif tokenizer_type == 'custom':
             self.compiled_pattern = re.compile(self.config.regex_pattern)
-            self.special_tokens = self.config.special_tokens
             self.vocab = self._load_vocab(self.config.custom_tokenizer_dir)
             self.merges = self._load_merges(self.config.custom_tokenizer_dir)
             for pair, value in self.merges.items():
@@ -46,6 +45,35 @@ class Tokenizer:
                 f"Unknown tokenizer_type '{tokenizer_type}'. Must be one of ['custom', 'hug', 'tiktoken']."
             )
         self.tokenizer_type = tokenizer_type
+        # Each backend assigns its own ids to the special tokens -- the custom scheme
+        # puts them at the top of the vocabulary, HuggingFace at the bottom. Resolving
+        # them per backend keeps callers (padding, EOS) from assuming one layout.
+        self.special_tokens = self._resolve_special_tokens()
+        self.special_ids = {i: name for name, i in self.special_tokens.items()}
+
+    def _resolve_special_tokens(self) -> Dict[str, int]:
+        if self.tokenizer_type == 'tiktoken':
+            return dict(self.config.special_tokens_tiktoken)
+        if self.tokenizer_type == 'custom':
+            return dict(self.config.special_tokens)
+        resolved = {}
+        for name in self.config.special_tokens:
+            token_id = self.tokenizer.token_to_id(name)
+            if token_id is None:
+                raise ValueError(
+                    f"The HuggingFace tokenizer at {self.config.hug_tokenizer} has no "
+                    f"id for {name!r}. Retrain it with `python -m tokenizer.hugging_face_tokenizer`."
+                )
+            resolved[name] = token_id
+        return resolved
+
+    @property
+    def pad_id(self) -> int:
+        return self.special_tokens["<|PAD|>"]
+
+    @property
+    def eos_id(self) -> int:
+        return self.special_tokens[" <|EOS|>"]
 
 
     def encode(self, text: str) -> List[int]:
@@ -60,15 +88,25 @@ class Tokenizer:
             return self.tokenizer.encode(text, allowed_special='all')
     
 
-    def decode(self, text_ids: List[int])-> str:
+    def decode(self, text_ids: List[int], skip_special_tokens: bool = False) -> str:
+        if skip_special_tokens:
+            text_ids = [i for i in text_ids if i not in self.special_ids]
+
         if self.tokenizer_type == 'custom':
-            word_b_str = b"".join([self.vocab.get(token_id, b"") for token_id in text_ids])
-            return word_b_str.decode(errors='replace')
+            chunks = []
+            for token_id in text_ids:
+                if token_id in self.special_ids:
+                    chunks.append(self.special_ids[token_id].encode("utf-8"))
+                else:
+                    chunks.append(self.vocab.get(token_id, b""))
+            return b"".join(chunks).decode(errors='replace')
         elif self.tokenizer_type == 'hug':
-            return "".join([self.tokenizer.decode([token_id]) for token_id in text_ids])
+            return "".join(
+                self.tokenizer.decode([token_id], skip_special_tokens=False)
+                for token_id in text_ids
+            )
         else:
-            filtered = [token_id for token_id in text_ids if token_id not in self.tokenizer._special_tokens.values()]
-            return self.tokenizer.decode(filtered)
+            return self.tokenizer.decode(text_ids)
     
     def _compress_word(self, word: List[int]) -> List[int]:
         while len(word) > 1:
@@ -108,10 +146,13 @@ def get_vocab_size(tokenizer_type: str, config: DataConfig = None) -> int:
 
 
 def get_pad_idx(tokenizer_type: str, config: DataConfig = None) -> int:
-    config = config or DataConfig()
-    if tokenizer_type == "tiktoken":
-        return config.special_tokens_tiktoken["<|PAD|>"]
-    return config.special_tokens["<|PAD|>"]
+    """Resolve <|PAD|> against the tokenizer itself.
+
+    Assuming the custom layout here previously handed the HuggingFace runs a pad id
+    of 511, which is an ordinary word in that vocabulary -- so every real occurrence
+    of it was masked out of attention and dropped from the loss.
+    """
+    return Tokenizer(tokenizer_type=tokenizer_type, config=config).pad_id
 
 
 def find_max_seq_length(tokenizer: Tokenizer, config: DataConfig) -> int:

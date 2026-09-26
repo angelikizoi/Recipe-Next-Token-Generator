@@ -26,5 +26,6 @@ class DataConfig:
     total_chars: int = 256  # utf-8 encoding max value
     total_merges: int = 251
     total_vocab_size: int = 512
+    hug_limit_alphabet: int = 100
 
 

@@ -30,11 +30,38 @@ def test_ids_stay_inside_embedding_range(tokenizer):
         assert all(0 <= i < vocab_size for i in tokenizer.encode(text))
 
 
-def test_special_tokens_encode_as_single_ids():
-    config = DataConfig()
-    tokenizer = Tokenizer(tokenizer_type="custom", config=config)
-    for token, expected_id in config.special_tokens.items():
-        assert tokenizer.encode(token) == [expected_id]
+def test_special_tokens_encode_as_single_ids(tokenizer):
+    for token in DataConfig().special_tokens:
+        assert tokenizer.encode(token) == [tokenizer.special_tokens[token]]
+
+
+def test_special_tokens_survive_a_decode_roundtrip(tokenizer):
+    """Regression: custom decode silently dropped every marker, and <|TITLE|> shared
+    an id with the merge ' cho', so titles decoded as 'chocolate' fragments."""
+    record = (" <|TITLE|> Cake <|INGREDIENTS|> chocolate, chopped nuts"
+              " <|DIRECTIONS|> Bake. <|EOS|>")
+    assert tokenizer.decode(tokenizer.encode(record)) == record
+
+
+def test_skip_special_tokens_removes_only_the_markers(tokenizer):
+    record = " <|TITLE|> Cake <|INGREDIENTS|> sugar <|EOS|>"
+    clean = tokenizer.decode(tokenizer.encode(record), skip_special_tokens=True)
+    assert "<|" not in clean
+    assert "Cake" in clean and "sugar" in clean
+
+
+def test_special_token_ids_are_disjoint_from_ordinary_tokens(tokenizer):
+    """Regression: a 252nd merge overran the vocabulary budget and collided with
+    <|TITLE|>, so one id meant both a structure marker and a piece of text."""
+    for token_id, name in tokenizer.special_ids.items():
+        assert tokenizer.decode([token_id]) == name
+
+
+def test_pad_idx_is_resolved_against_the_tokenizer(tokenizer):
+    """Regression: the custom pad id (511) was used for HuggingFace too, where it is
+    the ordinary word ' serving' -- masking a real word out of attention and loss."""
+    assert get_pad_idx(tokenizer.tokenizer_type) == tokenizer.pad_id
+    assert tokenizer.decode([tokenizer.pad_id]) == "<|PAD|>"
 
 
 def test_pad_idx_is_within_vocab():

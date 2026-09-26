@@ -229,12 +229,16 @@ def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
 
         gen_tokenizer = Tokenizer(tokenizer_type=tokenizer_type)
         prompts = ["chicken, rice, curry", "flour, sugar, butter, eggs", "tomato, basil, mozzarella"]
-        with open(os.path.join(results_dir, "sample_generations.txt"), "w") as f:
-            for prompt in prompts:
-                samples = generate(model, gen_tokenizer, pad_idx, device, prompt, num_return_sequences=2, max_length=124)
-                for sample in samples:
-                    f.write(sample + "\n\n")
-        mlflow.log_artifact(os.path.join(results_dir, "sample_generations.txt"))
+        # generation runs to <|EOS|>; the raw file keeps the structure markers visible
+        for filename, skip_special in [("sample_generations.txt", True),
+                                       ("sample_generations_raw.txt", False)]:
+            with open(os.path.join(results_dir, filename), "w") as f:
+                for prompt in prompts:
+                    samples = generate(model, gen_tokenizer, pad_idx, device, prompt,
+                                       num_return_sequences=2, skip_special_tokens=skip_special)
+                    for sample in samples:
+                        f.write(sample + "\n\n")
+            mlflow.log_artifact(os.path.join(results_dir, filename))
 
         with open(os.path.join(results_dir, "latest_run.json"), "w") as f:
             json.dump({

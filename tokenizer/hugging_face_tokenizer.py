@@ -12,7 +12,13 @@ special_tokens = list(config.special_tokens.keys())
 TIKTOKEN_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s"""
 
 tokenizer = Tokenizer(BPE())
-trainer = BpeTrainer(special_tokens=special_tokens, vocab_size=config.total_vocab_size)
+# limit_alphabet is load-bearing: the full corpus contains ~628 distinct characters,
+# which on its own exceeds vocab_size and leaves zero budget for merges.
+trainer = BpeTrainer(
+    special_tokens=special_tokens,
+    vocab_size=config.total_vocab_size,
+    limit_alphabet=config.hug_limit_alphabet,
+)
 tokenizer.pre_tokenizer = Split(Regex(TIKTOKEN_PATTERN), 'isolated')
 
 tokenizer.train([config.txt_filepath], trainer=trainer)
