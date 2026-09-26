@@ -61,7 +61,59 @@ Every training run logs to MLflow: hyperparameters, per-epoch train/val loss & p
 
 ## Results
 
-<!-- RESULTS_PLACEHOLDER -->
+8 layers, `d_model=256`, 8 heads (~6.8M params), vocab 512, 10 epochs over 2M+ recipes
+on a single RTX 5060 Ti. Both tokenizers train under an identical configuration and seed.
+
+| tokenizer | val loss | val perplexity | tokens/byte | **bits/byte** |
+|---|---|---|---|---|
+| custom BPE | 1.016 | 2.76 | 0.426 | **0.624** |
+| HuggingFace BPE | 1.132 | 3.10 | 0.385 | **0.629** |
+
+**Read the last column, not the perplexity.** Per-token perplexity is not comparable
+across tokenizers: the custom BPE learned 251 merges against HuggingFace's 413, so it
+emits finer-grained tokens that are each individually easier to predict. That alone
+accounts for nearly all of its apparent 12% perplexity advantage. Normalised to
+bits-per-byte — which measures compression of the same underlying text — the two are
+within 0.8% of each other. **A BPE implemented from first principles matches a
+production library's implementation to within a percent**, which is the result this
+project was built to test.
+
+Validation loss decreased monotonically for both runs, every epoch, with no instability
+spikes; both were still improving at epoch 10, so these numbers are a floor rather than
+a converged ceiling.
+
+| | custom | HuggingFace |
+|---|---|---|
+| loss | ![custom loss](results/custom/loss_curve.png) | ![hug loss](results/hug/loss_curve.png) |
+| perplexity | ![custom ppl](results/custom/perplexity_curve.png) | ![hug ppl](results/hug/perplexity_curve.png) |
+
+Sample generations (full set in [results/](results/)), prompted with a bare ingredient list:
+
+> **chicken, rice, curry** rice, Kale, cream of potato soup, quick-covered rotisserie
+> chicken, rice — Bring pot of water to boil. Add rice to boiling water and cook 25
+> minutes. In a bowl, mix meat with soup, kale, and chicken. […]
+
+> **chicken, rice, curry** powder artichoke bites, green olive oil, garlic, salt, curry
+> powder, scallions, marjoram, shallots, lemon — in a large pot, heat oil and saute
+> garlic until translucent. add salt, sugar, curry powder and roasted scallions […]
+
+At 6.8M parameters the model produces fluent recipe-shaped text with plausible
+ingredient-to-method consistency, but it does not track quantities or step ordering
+reliably across a whole recipe.
+
+### Effect of the fixes
+
+The same configuration before the initialisation and residual-path bugs described below
+were fixed:
+
+| | custom | HuggingFace |
+|---|---|---|
+| before | val 2.29 / ppl 9.84, diverged at epoch 5 | val 2.00 / ppl 7.39, oscillating |
+| after | **val 1.02 / ppl 2.76**, monotonic | **val 1.13 / ppl 3.10**, monotonic |
+
+Perplexity improved 3.6× and 2.4× respectively, and the training instability that
+prompted the investigation disappeared entirely — it was an architecture bug, not a
+learning-rate problem.
 
 ## Engineering notes
 
@@ -96,8 +148,10 @@ finding them was most of the work:
 
 ## Roadmap
 
-* Learning-rate and regularisation sweep now that the architecture bugs are fixed
-* Further scaling of the Transformer and tokenizer vocabulary
+* Train past 10 epochs — validation loss was still falling for both runs when training stopped
+* Learning-rate and regularisation sweep, now that the architecture bugs are no longer the bottleneck
+* Further scaling of the Transformer and of the tokenizer vocabulary (512 is small; the
+  bits-per-byte comparison should be repeated at a larger vocab)
 * A small web UI (Streamlit) for interactive recipe generation
 
 ---

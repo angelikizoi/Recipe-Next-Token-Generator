@@ -4,7 +4,7 @@ import numpy as np
 
 
 def loss_plot(history):
-    epochs = np.arange(len(history['train_loss']))
+    epochs = np.arange(1, len(history['train_loss']) + 1)
     with plt.style.context(style='seaborn-v0_8-pastel'):
         fig, ax = plt.subplots(figsize=(10,8))
         ax.plot(epochs, history["train_loss"], marker="o", label="Train loss")
@@ -19,7 +19,7 @@ def loss_plot(history):
     return fig
 
 def ppl_plot(history):
-    epochs = np.arange(len(history['train_ppl']))
+    epochs = np.arange(1, len(history['train_ppl']) + 1)
     with plt.style.context(style='seaborn-v0_8-pastel'):
         fig, ax = plt.subplots(figsize=(10,8))
         ax.plot(epochs, history["train_ppl"], marker="o", label="Train PPL")
