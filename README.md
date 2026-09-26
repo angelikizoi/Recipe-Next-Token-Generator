@@ -64,19 +64,19 @@ Every training run logs to MLflow: hyperparameters, per-epoch train/val loss & p
 8 layers, `d_model=256`, 8 heads (~6.8M params), vocab 512, 10 epochs over 2M+ recipes
 on a single RTX 5060 Ti. Both tokenizers train under an identical configuration and seed.
 
-| tokenizer | val loss | val perplexity | tokens/byte | **bits/byte** |
-|---|---|---|---|---|
-| custom BPE | 1.016 | 2.76 | 0.426 | **0.624** |
-| HuggingFace BPE | 1.132 | 3.10 | 0.385 | **0.629** |
+| tokenizer | merges | val loss | val perplexity | tokens/byte | **bits/byte** |
+|---|---|---|---|---|---|
+| custom BPE | 251 | 1.014 | 2.76 | 0.426 | **0.623** |
+| HuggingFace BPE | 407 | 1.143 | 3.13 | 0.378 | **0.623** |
 
 **Read the last column, not the perplexity.** Per-token perplexity is not comparable
-across tokenizers: the custom BPE learned 251 merges against HuggingFace's 413, so it
-emits finer-grained tokens that are each individually easier to predict. That alone
-accounts for nearly all of its apparent 12% perplexity advantage. Normalised to
-bits-per-byte — which measures compression of the same underlying text — the two are
-within 0.8% of each other. **A BPE implemented from first principles matches a
-production library's implementation to within a percent**, which is the result this
-project was built to test.
+across tokenizers: the custom BPE fits 251 merges into the 512-token budget against
+HuggingFace's 407, so it emits finer-grained tokens that are each individually easier
+to predict. That accounts for essentially all of its apparent 12% perplexity advantage.
+Normalised to bits-per-byte — compression of the same underlying text — the two are
+indistinguishable, within 0.2%. **A BPE implemented from first principles compresses
+this corpus as well as a production library's implementation**, which is the result
+this project was built to test.
 
 Validation loss decreased monotonically for both runs, every epoch, with no instability
 spikes; both were still improving at epoch 10, so these numbers are a floor rather than
@@ -87,19 +87,29 @@ a converged ceiling.
 | loss | ![custom loss](results/custom/loss_curve.png) | ![hug loss](results/hug/loss_curve.png) |
 | perplexity | ![custom ppl](results/custom/perplexity_curve.png) | ![hug ppl](results/hug/perplexity_curve.png) |
 
-Sample generations (full set in [results/](results/)), prompted with a bare ingredient list:
+Generation runs until the model emits `<|EOS|>` rather than to a fixed token budget, so
+sample length is the model's decision — across the twelve samples it ranges from 142 to
+1807 characters. Each run writes both a clean file and a `_raw` one with the structure
+markers left visible, which is the useful view when checking whether the model has
+actually learned the ingredients/directions boundary. Full set in [results/](results/):
 
-> **chicken, rice, curry** rice, Kale, cream of potato soup, quick-covered rotisserie
-> chicken, rice — Bring pot of water to boil. Add rice to boiling water and cook 25
-> minutes. In a bowl, mix meat with soup, kale, and chicken. […]
+> **flour, sugar, butter, eggs**, flour, lemon flavoring, baking powder, salt
+> `<|DIRECTIONS|>` Mix together. Pour into greased 9x13 pan. Bake 30 min at 350 degrees.
+> Serve with whipped cream or ice cream. `<|EOS|>`
 
-> **chicken, rice, curry** powder artichoke bites, green olive oil, garlic, salt, curry
-> powder, scallions, marjoram, shallots, lemon — in a large pot, heat oil and saute
-> garlic until translucent. add salt, sugar, curry powder and roasted scallions […]
+> **tomato, basil, mozzarella**, tomatoes, olives, basil, Parmesan, grated cheese, black
+> pepper `<|DIRECTIONS|>` Prepare your mayo according to the directions on the package,
+> then place in bowl. Add the mozzarella, and the black pepper. […]
 
-At 6.8M parameters the model produces fluent recipe-shaped text with plausible
-ingredient-to-method consistency, but it does not track quantities or step ordering
-reliably across a whole recipe.
+At 6.8M parameters the model reliably produces the ingredients → directions structure and
+locally fluent culinary prose, and short recipes are frequently coherent end to end. It
+still drifts over longer generations — repeating ingredients, losing track of what is
+already in the pan, and inventing occasional non-words.
+
+One artefact worth naming: generations sometimes contain the literal six-character
+sequence `\u00b0` instead of `°`. That is faithful reproduction, not a bug here — the upstream Kaggle CSV
+was serialised from JSON without unescaping, so roughly every baking recipe in the
+training data contains it.
 
 ### Effect of the fixes
 
@@ -109,11 +119,16 @@ were fixed:
 | | custom | HuggingFace |
 |---|---|---|
 | before | val 2.29 / ppl 9.84, diverged at epoch 5 | val 2.00 / ppl 7.39, oscillating |
-| after | **val 1.02 / ppl 2.76**, monotonic | **val 1.13 / ppl 3.10**, monotonic |
+| after | **val 1.01 / ppl 2.76**, monotonic | **val 1.14 / ppl 3.13**, monotonic |
 
 Perplexity improved 3.6× and 2.4× respectively, and the training instability that
 prompted the investigation disappeared entirely — it was an architecture bug, not a
 learning-rate problem.
+
+The later special-token fixes barely moved the aggregate loss (custom 1.016 → 1.014,
+HuggingFace 1.132 → 1.143) but they were what made the comparison trustworthy: before
+them, each run was handicapped differently, so the two bits-per-byte figures were not
+measuring the same thing.
 
 ## Engineering notes
 
@@ -145,6 +160,27 @@ finding them was most of the work:
   bottomed out earlier. Best-checkpoint selection is now tracked and restored.
 * **`targets.view(-1)` crashed on any non-contiguous target tensor** — latent, because
   the dataset happened to build targets as fresh tensors. Caught by a unit test.
+* **The two tokenizers assign special tokens different ids, and the code assumed one
+  layout.** The custom scheme puts them at the top of the vocabulary (507–511),
+  HuggingFace at the bottom (0–4), but `get_pad_idx` returned the custom value for
+  both. Padding the HuggingFace runs with 511 — an ordinary word, `' serving'` — meant
+  every genuine occurrence was masked out of attention and dropped from the loss via
+  `ignore_index`. Pad is now resolved against the tokenizer itself.
+* **The HuggingFace tokenizer had no `<|PAD|>` token at all**, and retraining it to add
+  one surfaced a second problem: `limit_alphabet` was unset, and the full corpus
+  contains ~628 distinct characters — more than the entire 512-token budget, leaving
+  zero room for merges. The original artefact had been trained on a smaller corpus and
+  silently depended on it having only ~95.
+* **A 252nd merge overran the vocabulary budget.** `merges.json` held ids 256–507 while
+  the config declared 251 merges, so merge 507 (`' cho'`) shared an id with
+  `<|TITLE|>` — every recipe's title marker was the same token as the `cho` in
+  *chocolate*. The arithmetic settles it: 256 base + 251 merges + 5 special = 512.
+* **`decode` silently swallowed anything outside the merge table.** `vocab.get(id, b"")`
+  meant the structure markers simply vanished from generated output, which is what hid
+  the two bugs above. It now renders them, with `skip_special_tokens` to opt out.
+* **Generation ran to a fixed 124 tokens** and stopped mid-word regardless of whether
+  the model had finished, which made the samples look far worse than the model was. It
+  now runs until `<|EOS|>`, with the context window as a safety net.
 
 ## Roadmap
 
