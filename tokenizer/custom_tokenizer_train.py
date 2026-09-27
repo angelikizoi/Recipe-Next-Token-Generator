@@ -14,8 +14,8 @@ import ast
 import cmsketch
 import gc
 
-TIKTOKEN_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s"""
-compiled_pattern = re.compile(TIKTOKEN_PATTERN)
+GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s"""
+compiled_pattern = re.compile(GPT4_SPLIT_PATTERN)
 
 
 def chunks(file_name: str, size: int=100000) -> Generator[pd.DataFrame, None, None]:
@@ -33,7 +33,7 @@ def transform_df_chunk(df_chunk: pd.DataFrame) -> List[List[int]]:
         text = f"{row[1]} {row[3]} {row[2]} " # {title} {ingredients} {directions} 
         # Step 1 : Creating a list of tokens ('words') by applying gpt-4 regex pattern
         tokens = re.findall(compiled_pattern, text)
-        # Step 2: Following Tiktoken tokenizer we convert each character to byte. So each word of
+        # Step 2: Convert each character to its bytes, so each word of
         # the text is represented as a sequence (list) of its letter bytes.
         chunk_recipe_list.extend([list(t.encode('utf-8')) for t in tokens])
     del df_chunk

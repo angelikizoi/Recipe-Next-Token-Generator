@@ -16,13 +16,6 @@ class DataConfig:
         " <|EOS|>": 510,
         "<|PAD|>": 511
     })
-    special_tokens_tiktoken: dict[str, int] = field(default_factory=lambda: {
-        " <|TITLE|>": 100264,
-        " <|INGREDIENTS|>": 100265,
-        " <|DIRECTIONS|>": 100266,
-        " <|EOS|>": 100267,
-        "<|PAD|>": 100268
-    })
     total_chars: int = 256  # utf-8 encoding max value
     total_merges: int = 251
     total_vocab_size: int = 512

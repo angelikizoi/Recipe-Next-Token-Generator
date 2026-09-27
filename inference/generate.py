@@ -83,7 +83,7 @@ def _resolve_run(args):
 def main():
     parser = argparse.ArgumentParser(description="Generate recipe text from a trained checkpoint.")
     parser.add_argument("--prompt", default="chicken, rice, curry", help="Prompt to condition generation on.")
-    parser.add_argument("--tokenizer", choices=["custom", "hug", "tiktoken"], default="hug",
+    parser.add_argument("--tokenizer", choices=["custom", "hug"], default="hug",
                          help="Tokenizer the target checkpoint was trained with.")
     parser.add_argument("--run-id", default=None, help="MLflow run id. Defaults to results/<tokenizer>/latest_run.json.")
     parser.add_argument("--model-name", default=None, help="MLflow logged-model name, e.g. 'model9'.")

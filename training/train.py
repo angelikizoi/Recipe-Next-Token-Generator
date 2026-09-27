@@ -21,7 +21,7 @@ from tokenizer.tokenizer import Tokenizer, get_vocab_size, get_pad_idx
 from inference.generate import generate
 from training.visualize import loss_plot, ppl_plot
 
-TOKENIZER_TYPES = ("custom", "hug", "tiktoken")
+TOKENIZER_TYPES = ("custom", "hug")
 RESULTS_ROOT = "results"
 
 
@@ -259,7 +259,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the recipe decoder for one or all tokenizers.")
     parser.add_argument(
         "--tokenizer", choices=TOKENIZER_TYPES, default=None,
-        help="Tokenizer to train with. Omit to train one decoder per tokenizer (custom, hug, tiktoken) sequentially.",
+        help="Tokenizer to train with. Omit to train one decoder per tokenizer (custom, hug) sequentially.",
     )
     parser.add_argument("--tracking-uri", default="http://localhost:5000")
     args = parser.parse_args()

@@ -8,7 +8,6 @@ from config.data_config import DataConfig
 from typing import Dict, List
 from collections import defaultdict
 import ast
-import tiktoken
 import numpy as np
 import regex as re
 import json
@@ -17,18 +16,10 @@ import json
 class Tokenizer:
     def __init__(self, tokenizer_type='custom', config=None):
         """
-        tokenizer_type: one of {"custom", "hug", "tiktoken"}
+        tokenizer_type: one of {"custom", "hug"}
         """
         self.config = config or DataConfig()
-        if tokenizer_type == 'tiktoken':
-            base_enc = tiktoken.get_encoding("cl100k_base")
-            self.tokenizer = tiktoken.Encoding(
-                name="custom_tiktoken",
-                pat_str=base_enc._pat_str,
-                mergeable_ranks=base_enc._mergeable_ranks,
-                special_tokens=self.config.special_tokens_tiktoken
-            )
-        elif tokenizer_type == 'hug':
+        if tokenizer_type == 'hug':
             from tokenizers import Tokenizer
             self.tokenizer = Tokenizer.from_file(self.config.hug_tokenizer)
 
@@ -42,7 +33,7 @@ class Tokenizer:
 
         else:
             raise ValueError(
-                f"Unknown tokenizer_type '{tokenizer_type}'. Must be one of ['custom', 'hug', 'tiktoken']."
+                f"Unknown tokenizer_type '{tokenizer_type}'. Must be one of ['custom', 'hug']."
             )
         self.tokenizer_type = tokenizer_type
         # Each backend assigns its own ids to the special tokens -- the custom scheme
@@ -52,8 +43,6 @@ class Tokenizer:
         self.special_ids = {i: name for name, i in self.special_tokens.items()}
 
     def _resolve_special_tokens(self) -> Dict[str, int]:
-        if self.tokenizer_type == 'tiktoken':
-            return dict(self.config.special_tokens_tiktoken)
         if self.tokenizer_type == 'custom':
             return dict(self.config.special_tokens)
         resolved = {}
@@ -82,10 +71,7 @@ class Tokenizer:
             raw_text_ids = [list(word.encode("utf-8")) if word not in self.special_tokens else [self.special_tokens[word]] for word in text_list]
             text_ids = [token for word_ids in raw_text_ids for token in self._compress_word(word_ids)]
             return text_ids
-        elif self.tokenizer_type == 'hug':
-            return self.tokenizer.encode(text).ids
-        else:
-            return self.tokenizer.encode(text, allowed_special='all')
+        return self.tokenizer.encode(text).ids
     
 
     def decode(self, text_ids: List[int], skip_special_tokens: bool = False) -> str:
@@ -100,13 +86,10 @@ class Tokenizer:
                 else:
                     chunks.append(self.vocab.get(token_id, b""))
             return b"".join(chunks).decode(errors='replace')
-        elif self.tokenizer_type == 'hug':
-            return "".join(
-                self.tokenizer.decode([token_id], skip_special_tokens=False)
-                for token_id in text_ids
-            )
-        else:
-            return self.tokenizer.decode(text_ids)
+        return "".join(
+            self.tokenizer.decode([token_id], skip_special_tokens=False)
+            for token_id in text_ids
+        )
     
     def _compress_word(self, word: List[int]) -> List[int]:
         while len(word) > 1:
@@ -139,10 +122,7 @@ class Tokenizer:
 
 def get_vocab_size(tokenizer_type: str, config: DataConfig = None) -> int:
     """Vocab size needed by the model embedding/output layers for a given tokenizer."""
-    config = config or DataConfig()
-    if tokenizer_type == "tiktoken":
-        return max(config.special_tokens_tiktoken.values()) + 1
-    return config.total_vocab_size
+    return (config or DataConfig()).total_vocab_size
 
 
 def get_pad_idx(tokenizer_type: str, config: DataConfig = None) -> int:
