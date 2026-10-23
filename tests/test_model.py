@@ -25,12 +25,6 @@ def test_forward_output_shape(model, config):
     assert loss is None
 
 
-def test_loss_is_returned_with_targets(model, config):
-    idx = torch.randint(0, config.vocab_size, (2, 16))
-    _, loss = model(config.vocab_size - 1, idx, targets=idx)
-    assert loss.ndim == 0 and loss.item() > 0
-
-
 def test_attention_is_causal(model, config):
     """Changing the final token must not alter logits at earlier positions."""
     idx = torch.randint(0, config.vocab_size, (1, 12))

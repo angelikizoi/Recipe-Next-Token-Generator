@@ -127,10 +127,6 @@ def get_vocab_size(tokenizer_type: str, config: DataConfig = None) -> int:
 
 def get_pad_idx(tokenizer_type: str, config: DataConfig = None) -> int:
     """Resolve <|PAD|> against the tokenizer itself.
-
-    Assuming the custom layout here previously handed the HuggingFace runs a pad id
-    of 511, which is an ordinary word in that vocabulary -- so every real occurrence
-    of it was masked out of attention and dropped from the loss.
     """
     return Tokenizer(tokenizer_type=tokenizer_type, config=config).pad_id
 

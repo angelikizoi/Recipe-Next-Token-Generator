@@ -98,8 +98,9 @@ class Transformer_Decoder(nn.Module):
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             std = 0.02
-            # residual projections are scaled down so the residual stream variance
-            # stays ~constant with depth (two per block: attention out + MLP out)
+            #  Scale the initialization of the linear layers by the number of layers in the model, 
+            # if the module has the attribute 'NANO_GPT_SCALE_INIT' to prevent the variance of the 
+            # output from growing too large as the number of layers increases. 
             if hasattr(module, 'NANO_GPT_SCALE_INIT'):
                 std *= (2 * self.config.n_layers) ** -0.5
             nn.init.normal_(module.weight, mean=0.0, std=std)

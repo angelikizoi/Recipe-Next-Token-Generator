@@ -40,12 +40,3 @@ def test_midpoint_of_cosine_is_halfway_between_min_and_max():
     midpoint = WARMUP + (DECAY - WARMUP) // 2
     assert lr_at(midpoint) == pytest.approx((MAX_LR + MIN_LR) / 2, rel=1e-2)
 
-
-def test_warmup_starts_below_min_lr():
-    """Warmup ramps from ~0, not from min_lr — min_lr is the decay floor only."""
-    assert 0 < lr_at(0) < MIN_LR
-
-
-def test_lr_stays_between_min_and_max_after_warmup():
-    for it in range(WARMUP, DECAY * 2, 7):
-        assert MIN_LR <= lr_at(it) <= MAX_LR

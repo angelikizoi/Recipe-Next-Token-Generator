@@ -29,25 +29,19 @@ def load_data(model_config, data_config, mode, pad_idx, tokenizer_type):
     line_offsets = np.load(data_config.offsets_filepath)
     lengths = (line_offsets[1:] - line_offsets[:-1]).astype(np.int64)
     n = len(lengths)
-    indices = np.random.permutation(n)
-    if mode == 'train':
-        sampler_indices = indices[:int(model_config.train_test_split*n)]
-    else:
-        sampler_indices = indices[int(model_config.train_test_split*n):]
-
+    indices = np.random.default_rng(1337).permutation(n)
+    split = int(model_config.train_test_split * n)
+    sampler_indices = indices[:split] if mode == 'train' else indices[split:]
+    num_workers = 8 if mode == 'train' else 4
     data = TokenizedDataset(line_offsets, model_config.sentence_length, tokenizer_type=tokenizer_type)
     return DataLoader(
         data,
         batch_sampler=SentenceLenSampler(sampler_indices, lengths, model_config.batch_size),
         collate_fn=functools.partial(collate_pad_fn, pad_token_id=pad_idx),
-        num_workers=8,
+        num_workers=num_workers,
         pin_memory=True,
         prefetch_factor=4,
         persistent_workers=True,
-        # 'spawn' avoids a fork-time deadlock: the HF `tokenizers` Rust extension's
-        # internal thread pool doesn't reliably survive being forked mid-init, which
-        # intermittently hung worker processes under the default 'fork' context.
-        multiprocessing_context="spawn",
     )
 
 def get_lr(it, warmup_iters, lr_decay_iters, min_lr, max_lr):
@@ -128,19 +122,8 @@ def evaluate(model, val_loader, epoch, device, pad_idx):
     return avg_val_loss, math.exp(avg_val_loss)
 
 
-def check_tracking_server(tracking_uri):
-    """Fail fast: without this, an unreachable server just stalls in silent retries."""
-    try:
-        urllib.request.urlopen(f"{tracking_uri}/health", timeout=5)
-    except Exception as exc:
-        raise SystemExit(
-            f"Cannot reach the MLflow tracking server at {tracking_uri} ({exc}).\n"
-            f"Start it first:  mlflow server --host 127.0.0.1 --port 5000"
-        )
-
 
 def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
-    check_tracking_server(tracking_uri)
     model_config = ModelConfig()
     data_config = DataConfig()
     model_config.vocab_size = get_vocab_size(tokenizer_type, data_config)

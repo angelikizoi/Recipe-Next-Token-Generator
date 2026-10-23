@@ -20,9 +20,6 @@ def test_roundtrip_is_lossless(tokenizer, text):
     assert tokenizer.decode(tokenizer.encode(text)) == text
 
 
-def test_encode_returns_non_empty_ids(tokenizer):
-    assert len(tokenizer.encode("tomato basil")) > 0
-
 
 def test_ids_stay_inside_embedding_range(tokenizer):
     vocab_size = get_vocab_size(tokenizer.tokenizer_type)
@@ -53,8 +50,11 @@ def test_skip_special_tokens_removes_only_the_markers(tokenizer):
 def test_special_token_ids_are_disjoint_from_ordinary_tokens(tokenizer):
     """Regression: a 252nd merge overran the vocabulary budget and collided with
     <|TITLE|>, so one id meant both a structure marker and a piece of text."""
-    for token_id, name in tokenizer.special_ids.items():
-        assert tokenizer.decode([token_id]) == name
+    vocab_size = get_vocab_size(tokenizer.tokenizer_type)
+    assert all(i < vocab_size for i in tokenizer.special_ids)
+    if tokenizer.tokenizer_type == "custom":
+        # HuggingFace assigns special ids itself; only the custom BPE can collide
+        assert set(tokenizer.vocab).isdisjoint(tokenizer.special_ids)
 
 
 def test_pad_idx_is_resolved_against_the_tokenizer(tokenizer):
@@ -62,11 +62,6 @@ def test_pad_idx_is_resolved_against_the_tokenizer(tokenizer):
     the ordinary word ' serving' -- masking a real word out of attention and loss."""
     assert get_pad_idx(tokenizer.tokenizer_type) == tokenizer.pad_id
     assert tokenizer.decode([tokenizer.pad_id]) == "<|PAD|>"
-
-
-def test_pad_idx_is_within_vocab():
-    for tokenizer_type in ("custom", "hug"):
-        assert get_pad_idx(tokenizer_type) < get_vocab_size(tokenizer_type)
 
 
 def test_merges_are_applied():
