@@ -8,7 +8,7 @@ class ModelConfig:
     n_layers: int = 8
     d_model: int = 256
     n_heads: int = 8
-    n_epochs: int = 10
+    n_epochs: int = 40
     dropout: float = 0.1
     clip_grad_norm: float = 1.0
     learning_rate: float = 1e-4

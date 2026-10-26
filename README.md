@@ -71,10 +71,10 @@ Both use the GPT-4 pre-tokenization regex, and [tokenizer/tokenizer.py](tokenize
 
 * 90/10 train/validation split, drawn from a fixed seed so every run sees the same recipes
 * A length-bucketed batch sampler (`SentenceLenSampler`) groups similarly-sized recipes together per batch to minimize padding
-* AdamW, gradient clipping, bf16 autocast, and a nanoGPT-style linear-warmup / cosine-decay learning-rate schedule over 10 epochs
+* AdamW, gradient clipping, bf16 autocast, and a nanoGPT-style linear-warmup / cosine-decay learning-rate schedule over 40 epochs
 * The best epoch by validation loss is restored before writing results
 
-Every run logs to MLflow: hyperparameters, per-epoch train/val loss & perplexity, gradient norms, a model checkpoint per epoch, and the result artifacts. The same artifacts are written to `results/<tokenizer>/`, along with `latest_run.json` pointing at the best checkpoint.
+Every run logs to MLflow: hyperparameters, per-epoch train/val loss & perplexity, gradient norms, the best epoch's checkpoint (as `best_model`), and the result artifacts. The same artifacts are written to `results/<tokenizer>/`, along with `latest_run.json` pointing at that checkpoint.
 
 ### 5. Inference
 
@@ -82,14 +82,14 @@ Every run logs to MLflow: hyperparameters, per-epoch train/val loss & perplexity
 
 ## Results
 
-10 epochs on a single RTX 5060 Ti:
+40 epochs on a single RTX 5060 Ti:
 
 | tokenizer | val loss | val perplexity | tokens/byte | bits/byte |
 |---|---|---|---|---|
-| custom BPE | 1.020 | 2.77 | 0.426 | 0.627 |
-| HuggingFace BPE | 1.148 | 3.15 | 0.378 | 0.626 |
+| custom BPE | 0.962 | 2.62 | 0.426 | 0.591 |
+| HuggingFace BPE | 1.086 | 2.96 | 0.378 | 0.592 |
 
-Per-token loss and perplexity are not comparable across tokenizers, since the custom BPE splits text into more, finer tokens. Bits per byte measures both on the same underlying text.
+Per-token loss and perplexity are not comparable across tokenizers, since the custom BPE splits text into more, finer tokens. Bits per byte measures both on the same underlying text. For both tokenizers the best validation loss came at the final epoch (it was still decreasing slightly).
 
 | | custom | HuggingFace |
 |---|---|---|

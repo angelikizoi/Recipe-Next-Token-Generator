@@ -1,8 +1,8 @@
 {
-  "run_id": "b459f1c18eac4b53ba346aac517c5c82",
+  "run_id": "0eafaa70920a4e0c9ae13f7530e84645",
   "experiment_id": "428980374870919121",
-  "model_name": "model9",
+  "model_name": "best_model",
   "tracking_uri": "http://localhost:5000",
   "tokenizer_type": "hug",
-  "best_epoch": 10
+  "best_epoch": 40
 }

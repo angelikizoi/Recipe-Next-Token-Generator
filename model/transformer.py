@@ -92,6 +92,7 @@ class Transformer_Decoder(nn.Module):
 
         self.drop = nn.Dropout(config.dropout)
 
+        # similarly semantically tokens should have the same probabilitis at the output of the transformer 
         self.wte.weight = self.linear.weight
         self.apply(self._init_weights)
 

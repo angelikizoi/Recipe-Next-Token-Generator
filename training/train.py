@@ -23,6 +23,7 @@ from training.visualize import loss_plot, ppl_plot
 
 TOKENIZER_TYPES = ("custom", "hug")
 RESULTS_ROOT = "results"
+BEST_MODEL_NAME = "best_model"
 
 
 def load_data(model_config, data_config, mode, pad_idx, tokenizer_type):
@@ -175,7 +176,6 @@ def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
         best_val_loss = float("inf")
         best_epoch = None
         best_state = None
-        model_name = None
         for i in range(model_config.n_epochs):
             train_loss, train_ppl = train(model, train_loader, optimizer, model_config, i + 1, device, pad_idx, iters_per_epoch, total_iters)
             val_loss, val_ppl = evaluate(model, val_loader, i + 1, device, pad_idx)
@@ -183,9 +183,6 @@ def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
             history["val_loss"].append(val_loss)
             history["train_ppl"].append(train_ppl)
             history["val_ppl"].append(val_ppl)
-
-            model_name = f"model{i}"
-            mlflow.pytorch.log_model(model, name=model_name)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -197,6 +194,8 @@ def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
         print(f"[{tokenizer_type}] best epoch: {best_epoch} (val_loss={best_val_loss:.4f}); "
               f"restoring its weights for final results/generation")
         model.load_state_dict(best_state)
+        # only the best epoch's weights are logged, so inference can't pick up any other checkpoint
+        mlflow.pytorch.log_model(model, name=BEST_MODEL_NAME)
         history["best_epoch"] = best_epoch
 
         with open(os.path.join(results_dir, "metrics.json"), "w") as f:
@@ -227,7 +226,7 @@ def run_training(tokenizer_type, tracking_uri="http://localhost:5000"):
             json.dump({
                 "run_id": run.info.run_id,
                 "experiment_id": experiment_id,
-                "model_name": f"model{best_epoch - 1}",
+                "model_name": BEST_MODEL_NAME,
                 "tracking_uri": tracking_uri,
                 "tokenizer_type": tokenizer_type,
                 "best_epoch": best_epoch,
